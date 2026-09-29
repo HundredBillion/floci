@@ -125,7 +125,7 @@ class BedrockProxyIntegrationTest {
             """);
         JsonNode schema = objectMapper.readTree("""
             {"type":"object","properties":{"label":{"$ref":"#/$defs/label"}},
-             "required":["label"],"additionalProperties":false,
+             "additionalProperties":false,
              "$defs":{"label":{"type":"string","enum":["ready","pending"]}}}
             """);
         ObjectNode definition = request.putObject("outputConfig").putObject("textFormat")
@@ -148,7 +148,7 @@ class BedrockProxyIntegrationTest {
         JsonNode forwarded = responseFormat.path("json_schema");
         assertEquals("label_response", forwarded.path("name").asText());
         assertEquals("A readiness label", forwarded.path("description").asText());
-        assertTrue(forwarded.path("strict").asBoolean());
+        assertFalse(forwarded.has("strict"), "Bedrock schemas must not acquire OpenAI-only strict restrictions");
         assertEquals(schema, forwarded.path("schema"));
     }
 

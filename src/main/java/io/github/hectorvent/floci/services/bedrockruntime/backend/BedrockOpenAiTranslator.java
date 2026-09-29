@@ -151,7 +151,6 @@ final class BedrockOpenAiTranslator {
         ObjectNode responseFormat = openAi.putObject("response_format").put("type", "json_schema");
         ObjectNode jsonSchema = responseFormat.putObject("json_schema");
         jsonSchema.put("name", definition.path("name").asText("response"));
-        jsonSchema.put("strict", true);
         jsonSchema.set("schema", schema);
         if (definition.has("description")) {
             jsonSchema.set("description", definition.path("description").deepCopy());
