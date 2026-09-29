@@ -249,7 +249,15 @@ final class BedrockOpenAiTranslator {
         }
         String encoded = bytes.asText();
         try {
-            Base64.getDecoder().decode(encoded);
+            // Validate aligned quartets in bounded chunks instead of allocating the whole decoded image.
+            for (int offset = 0; offset < encoded.length();) {
+                int end = offset + Math.min(8192, encoded.length() - offset);
+                int decodedLength = Base64.getDecoder().decode(encoded.substring(offset, end)).length;
+                if (end < encoded.length() && decodedLength != (end - offset) / 4 * 3) {
+                    throw new IllegalArgumentException("Image padding must occur only at the end.");
+                }
+                offset = end;
+            }
         } catch (IllegalArgumentException e) {
             throw new AwsException("ValidationException", "Image source.bytes must contain valid Base64.", 400);
         }

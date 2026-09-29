@@ -19,6 +19,7 @@ import org.junit.jupiter.params.provider.ValueSource;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
+import java.util.Base64;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -321,6 +322,51 @@ class BedrockProxyIntegrationTest {
         assertEquals(1, messages.size());
         assertEquals("data:image/" + format + ";base64,AQID",
                 messages.get(0).path("content").get(0).path("image_url").path("url").asText());
+    }
+
+    @ParameterizedTest
+    @ValueSource(ints = {6143, 6144, 6145, 12288})
+    void largerImagesKeepTheirExactEncoding(int byteCount) throws IOException {
+        nextResponseBody.set("""
+            {"choices":[{"finish_reason":"stop","message":{"content":"image received"}}]}
+            """);
+        String encoded = Base64.getEncoder().encodeToString(new byte[byteCount]);
+        given()
+            .contentType("application/json")
+            .header("Authorization", AUTH_HEADER)
+            .body("""
+                {"messages":[{"role":"user","content":[
+                    {"image":{"format":"png","source":{"bytes":"%s"}}}
+                ]}]}
+                """.formatted(encoded))
+        .when()
+            .post("/model/" + MAPPED_MODEL_ID + "/converse")
+        .then()
+            .statusCode(200);
+        assertEquals("data:image/png;base64," + encoded, objectMapper.readTree(received.get().body())
+                .path("messages").get(0).path("content").get(0).path("image_url").path("url").asText());
+    }
+
+    @Test
+    void imagePaddingBeforeTheLastChunkIsRejected() {
+        nextResponseBody.set("""
+            {"choices":[{"finish_reason":"stop","message":{"content":"unexpected"}}]}
+            """);
+        String encoded = Base64.getEncoder().encodeToString(new byte[6143]) + "AQID";
+        given()
+            .contentType("application/json")
+            .header("Authorization", AUTH_HEADER)
+            .body("""
+                {"messages":[{"role":"user","content":[
+                    {"image":{"format":"png","source":{"bytes":"%s"}}}
+                ]}]}
+                """.formatted(encoded))
+        .when()
+            .post("/model/" + MAPPED_MODEL_ID + "/converse")
+        .then()
+            .statusCode(400)
+            .body("__type", equalTo("ValidationException"));
+        assertNull(received.get());
     }
 
     @ParameterizedTest
