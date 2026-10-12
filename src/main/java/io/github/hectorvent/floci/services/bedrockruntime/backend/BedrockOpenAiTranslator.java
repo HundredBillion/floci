@@ -1,5 +1,7 @@
 package io.github.hectorvent.floci.services.bedrockruntime.backend;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
@@ -107,7 +109,64 @@ final class BedrockOpenAiTranslator {
             openAi.set("stop", stopSequences.deepCopy());
         }
 
+        translateOutputConfig(mapper, bedrockRequest.path("outputConfig"), openAi);
+
         return openAi;
+    }
+
+    private static void translateOutputConfig(ObjectMapper mapper, JsonNode outputConfig, ObjectNode openAi) {
+        if (outputConfig.isMissingNode()) {
+            return;
+        }
+        if (!outputConfig.isObject()) {
+            throw invalidOutputConfig("outputConfig must be an object.");
+        }
+        if (outputConfig.has("effort")) {
+            JsonNode effort = outputConfig.path("effort");
+            if (!effort.isTextual() || !List.of("low", "medium", "high", "xhigh", "max").contains(effort.asText())) {
+                throw invalidOutputConfig("outputConfig.effort must be low, medium, high, xhigh, or max.");
+            }
+            openAi.put("reasoning_effort", effort.asText());
+        }
+        JsonNode textFormat = outputConfig.path("textFormat");
+        if (textFormat.isMissingNode()) {
+            return;
+        }
+        JsonNode structure = textFormat.path("structure");
+        JsonNode definition = structure.path("jsonSchema");
+        JsonNode schemaString = definition.path("schema");
+        if (!"json_schema".equals(textFormat.path("type").asText())
+                || !structure.isObject() || structure.size() != 1 || !definition.isObject()
+                || !schemaString.isTextual()
+                || (definition.has("name") && !definition.path("name").isTextual())
+                || (definition.has("description") && !definition.path("description").isTextual())) {
+            throw invalidOutputConfig(
+                    "outputConfig.textFormat requires type json_schema and structure.jsonSchema with a schema string"
+                            + " and optional string name/description.");
+        }
+        JsonNode schema;
+        try {
+            schema = mapper.reader().with(DeserializationFeature.FAIL_ON_TRAILING_TOKENS)
+                    .with(DeserializationFeature.USE_BIG_DECIMAL_FOR_FLOATS)
+                    .readTree(schemaString.asText());
+        } catch (JsonProcessingException e) {
+            throw invalidOutputConfig("Structured output schema must be a JSON object.");
+        }
+        if (schema == null || !schema.isObject()) {
+            throw invalidOutputConfig("Structured output schema must be a JSON object.");
+        }
+        ObjectNode responseFormat = openAi.putObject("response_format").put("type", "json_schema");
+        ObjectNode jsonSchema = responseFormat.putObject("json_schema");
+        jsonSchema.put("name", definition.path("name").asText("response"));
+        jsonSchema.set("schema", schema);
+        if (definition.has("description")) {
+            jsonSchema.set("description", definition.path("description").deepCopy());
+        }
+    }
+
+    private static AwsException invalidOutputConfig(String message) {
+        LOG.warnv("Bedrock proxy rejected outputConfig: {0}", message);
+        return new AwsException("ValidationException", message, 400);
     }
 
     /** Builds the OpenAI {@code {type: "function", function: {name}}} shape shared by tools[] entries and tool_choice. */
@@ -222,6 +281,12 @@ final class BedrockOpenAiTranslator {
         }
         StringBuilder sb = new StringBuilder();
         for (JsonNode part : toolResultContent) {
+            if (part.has("image")) {
+                LOG.warnv("Bedrock proxy rejected an image in toolResult.content; OpenAI tool messages require text.");
+                throw new AwsException("ValidationException",
+                        "The proxy does not support images in toolResult.content; OpenAI tool messages require text.",
+                        400);
+            }
             String text = part.path("text").asText(null);
             if (text == null && part.has("json")) {
                 text = part.path("json").toString();
