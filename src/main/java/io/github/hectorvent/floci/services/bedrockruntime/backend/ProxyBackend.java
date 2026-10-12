@@ -30,6 +30,7 @@ import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
 import java.util.stream.Stream;
 
@@ -42,6 +43,7 @@ import java.util.stream.Stream;
 public class ProxyBackend implements BedrockBackend {
 
     private static final Logger LOG = Logger.getLogger(ProxyBackend.class);
+    private static final Duration ERROR_BODY_READ_TIMEOUT = Duration.ofSeconds(1);
 
     private final ObjectMapper objectMapper;
     private final EmulatorConfig config;
@@ -113,10 +115,12 @@ public class ProxyBackend implements BedrockBackend {
         RoutingContext context = currentRequest.getCurrent();
         CompletableFuture<HttpResponse<InputStream>> pending = httpClient.sendAsync(request, HttpResponse.BodyHandlers.ofInputStream());
         AtomicBoolean complete = new AtomicBoolean();
+        AtomicLong errorReadDeadlineNanos = new AtomicLong();
         Thread monitor = Thread.ofVirtual().name("bedrock-stream-disconnect").start(() -> {
             try {
                 while (!complete.get()) {
-                    if (context.response().closed()) {
+                    long deadline = errorReadDeadlineNanos.get();
+                    if (context.response().closed() || (deadline != 0 && System.nanoTime() - deadline >= 0)) {
                         pending.thenAccept(response -> closeBody(response.body()));
                         pending.cancel(true);
                         return;
@@ -131,6 +135,8 @@ public class ProxyBackend implements BedrockBackend {
         try {
             response = pending.get();
             if (response.statusCode() >= 300) {
+                // Collecting error details must not delay a known upstream failure indefinitely.
+                errorReadDeadlineNanos.set(System.nanoTime() + ERROR_BODY_READ_TIMEOUT.toNanos());
                 String errorBody;
                 try {
                     errorBody = new String(response.body().readNBytes(8192), StandardCharsets.UTF_8);
