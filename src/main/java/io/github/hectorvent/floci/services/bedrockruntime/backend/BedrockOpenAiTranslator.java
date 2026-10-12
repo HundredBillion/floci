@@ -123,13 +123,14 @@ final class BedrockOpenAiTranslator {
             return;
         }
         if (!outputConfig.isObject()) {
-            throw invalidOutputConfig("outputConfig must be an object.");
+            throw new AwsException("ValidationException", "outputConfig must be an object.", 400);
         }
         // Effort is independent of textFormat, so effort-only requests must survive the return below.
         if (outputConfig.has("effort")) {
             JsonNode effort = outputConfig.path("effort");
             if (!effort.isTextual() || !List.of("low", "medium", "high", "xhigh", "max").contains(effort.asText())) {
-                throw invalidOutputConfig("outputConfig.effort must be low, medium, high, xhigh, or max.");
+                throw new AwsException("ValidationException",
+                        "outputConfig.effort must be low, medium, high, xhigh, or max.", 400);
             }
             openAi.put("reasoning_effort", effort.asText());
         }
@@ -146,9 +147,9 @@ final class BedrockOpenAiTranslator {
                 || !schemaString.isTextual()
                 || (definition.has("name") && !definition.path("name").isTextual())
                 || (definition.has("description") && !definition.path("description").isTextual())) {
-            throw invalidOutputConfig(
+            throw new AwsException("ValidationException",
                     "outputConfig.textFormat requires type json_schema and structure.jsonSchema with a schema string"
-                            + " and optional string name/description.");
+                            + " and optional string name/description.", 400);
         }
         JsonNode schema;
         try {
@@ -157,10 +158,10 @@ final class BedrockOpenAiTranslator {
                     .with(DeserializationFeature.USE_BIG_DECIMAL_FOR_FLOATS)
                     .readTree(schemaString.asText());
         } catch (JsonProcessingException e) {
-            throw invalidOutputConfig("Structured output schema must be a JSON object.");
+            throw new AwsException("ValidationException", "Structured output schema must be a JSON object.", 400);
         }
         if (schema == null || !schema.isObject()) {
-            throw invalidOutputConfig("Structured output schema must be a JSON object.");
+            throw new AwsException("ValidationException", "Structured output schema must be a JSON object.", 400);
         }
         // OpenAI requires a name that Bedrock makes optional, so use a stable default.
         // Leave strict unset: its extra restrictions would reject schemas with optional properties.
@@ -171,11 +172,6 @@ final class BedrockOpenAiTranslator {
         if (definition.has("description")) {
             jsonSchema.set("description", definition.path("description").deepCopy());
         }
-    }
-
-    private static AwsException invalidOutputConfig(String message) {
-        LOG.warnv("Bedrock proxy rejected outputConfig: {0}", message);
-        return new AwsException("ValidationException", message, 400);
     }
 
     /** Builds the OpenAI {@code {type: "function", function: {name}}} shape shared by tools[] entries and tool_choice. */
@@ -290,10 +286,9 @@ final class BedrockOpenAiTranslator {
         }
         StringBuilder sb = new StringBuilder();
         for (JsonNode part : toolResultContent) {
-            if (part.has("image")) {
-                LOG.warnv("Bedrock proxy rejected an image in toolResult.content; OpenAI tool messages require text.");
+            if (!part.isObject() || part.size() != 1 || (!part.has("text") && !part.has("json"))) {
                 throw new AwsException("ValidationException",
-                        "The proxy does not support images in toolResult.content; OpenAI tool messages require text.",
+                        "The proxy supports only text or json blocks in toolResult.content.",
                         400);
             }
             String text = part.path("text").asText(null);

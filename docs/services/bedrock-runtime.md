@@ -94,16 +94,15 @@ returned data when testing through the proxy.
 The proxy rejects malformed configuration or a schema that is not a JSON object
 with `400 ValidationException`; it does not implement a JSON Schema validator or
 validate generated responses. Requests without a text format keep their existing
-behavior. Malformed output configuration produces a warning when rejected.
-The `stub` backend still ignores output constraints.
+behavior. The `stub` backend still ignores output constraints.
 
 `outputConfig.effort` is translated to OpenAI `reasoning_effort` on both operations,
 with or without `textFormat`. The supported Bedrock levels are `low`, `medium`,
 `high`, `xhigh`, and `max`; the requested value is preserved without downgrading it.
 The configured backend and model must support the requested effort level. In
 particular, `max` is not a standard OpenAI Chat Completions level and requires a
-backend that accepts it. A backend rejection is logged and returned as
-`ModelErrorException`. Malformed or unrecognized effort values produce a logged
+backend that accepts it. A backend rejection is returned as `ModelErrorException`.
+Malformed or unrecognized effort values produce a
 `400 ValidationException` before contacting the backend.
 
 ### Inline images through the proxy
@@ -128,11 +127,11 @@ with open("image.png", "rb") as image:
 Supply raw bytes to the AWS SDK; it performs the wire-level Base64 encoding.
 The proxy rejects unsupported formats, malformed Base64, empty byte sources,
 and S3 image sources with `400 ValidationException` before contacting the backend.
-Images inside `toolResult.content` are unsupported because OpenAI tool messages
-only accept text. The proxy logs a warning and rejects the entire request with
-`400 ValidationException` before contacting the backend, rather than dropping the
-image. Text and JSON tool results remain supported. These warnings do not include
-request schemas or image bytes.
+Only `text` and `json` blocks are supported inside `toolResult.content`, because
+OpenAI tool messages accept text and the proxy serializes JSON results to text.
+Other content, including images, documents, videos, and search results, is rejected
+with `400 ValidationException` before contacting the backend, rather than being
+silently discarded.
 
 It does not decode image files or enforce model-specific image dimensions and
 size limits; those remain the responsibility of the configured backend.

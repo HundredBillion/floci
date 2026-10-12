@@ -446,9 +446,16 @@ class BedrockProxyIntegrationTest {
     @ValueSource(strings = {
         "[{\"image\":{\"format\":\"png\",\"source\":{\"bytes\":\"AQID\"}}}]",
         "[{\"text\":\"result\"},{\"image\":{\"format\":\"png\",\"source\":{\"bytes\":\"AQID\"}}},{\"json\":{\"ok\":true}}]",
-        "[{\"image\":{\"format\":\"png\",\"source\":{\"s3Location\":{\"uri\":\"s3://bucket/image.png\"}}}}]"
+        "[{\"image\":{\"format\":\"png\",\"source\":{\"s3Location\":{\"uri\":\"s3://bucket/image.png\"}}}}]",
+        "[{\"document\":{\"format\":\"txt\",\"name\":\"note\",\"source\":{\"bytes\":\"AQID\"}}}]",
+        "[{\"video\":{\"format\":\"mp4\",\"source\":{\"bytes\":\"AQID\"}}}]",
+        "[{\"searchResult\":{\"source\":\"https://example.com\",\"title\":\"result\",\"content\":[{\"text\":\"result\"}]}}]",
+        "[{\"futureMember\":{}}]",
+        "[{}]",
+        "[null]",
+        "[{\"text\":\"result\",\"json\":{\"ok\":true}}]"
     })
-    void toolResultImagesFailBeforeCallingProxy(String content) {
+    void unsupportedToolResultContentFailsBeforeCallingProxy(String content) {
         nextResponseBody.set("""
             {"choices":[{"finish_reason":"stop","message":{"content":"unexpected"}}]}
             """);
