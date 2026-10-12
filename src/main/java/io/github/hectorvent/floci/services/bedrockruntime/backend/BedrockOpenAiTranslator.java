@@ -114,6 +114,14 @@ final class BedrockOpenAiTranslator {
         return openAi;
     }
 
+    /**
+     * Validates Bedrock output controls, parses the schema, and builds the OpenAI
+     * wire shape shared by Converse and ConverseStream.
+     * Bedrock nests effort and a schema string under {@code outputConfig}, while OpenAI
+     * expects {@code reasoning_effort} and {@code response_format} containing a schema object.
+     * Keeping validation with conversion rejects malformed controls before backend inference
+     * or a committed stream response.
+     */
     private static void translateOutputConfig(ObjectMapper mapper, JsonNode outputConfig, ObjectNode openAi) {
         if (outputConfig.isMissingNode()) {
             return;
@@ -121,6 +129,7 @@ final class BedrockOpenAiTranslator {
         if (!outputConfig.isObject()) {
             throw invalidOutputConfig("outputConfig must be an object.");
         }
+        // Effort is independent of textFormat, so effort-only requests must survive the return below.
         if (outputConfig.has("effort")) {
             JsonNode effort = outputConfig.path("effort");
             if (!effort.isTextual() || !List.of("low", "medium", "high", "xhigh", "max").contains(effort.asText())) {
@@ -135,6 +144,7 @@ final class BedrockOpenAiTranslator {
         JsonNode structure = textFormat.path("structure");
         JsonNode definition = structure.path("jsonSchema");
         JsonNode schemaString = definition.path("schema");
+        // structure is an AWS union: jsonSchema must be its only member.
         if (!"json_schema".equals(textFormat.path("type").asText())
                 || !structure.isObject() || structure.size() != 1 || !definition.isObject()
                 || !schemaString.isTextual()
@@ -146,6 +156,7 @@ final class BedrockOpenAiTranslator {
         }
         JsonNode schema;
         try {
+            // Decimal constraints must retain their precision, and trailing JSON values are malformed input.
             schema = mapper.reader().with(DeserializationFeature.FAIL_ON_TRAILING_TOKENS)
                     .with(DeserializationFeature.USE_BIG_DECIMAL_FOR_FLOATS)
                     .readTree(schemaString.asText());
@@ -155,6 +166,8 @@ final class BedrockOpenAiTranslator {
         if (schema == null || !schema.isObject()) {
             throw invalidOutputConfig("Structured output schema must be a JSON object.");
         }
+        // OpenAI requires a name that Bedrock makes optional, so use a stable default.
+        // Leave strict unset: its extra restrictions would reject schemas with optional properties.
         ObjectNode responseFormat = openAi.putObject("response_format").put("type", "json_schema");
         ObjectNode jsonSchema = responseFormat.putObject("json_schema");
         jsonSchema.put("name", definition.path("name").asText("response"));
