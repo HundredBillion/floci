@@ -115,12 +115,8 @@ final class BedrockOpenAiTranslator {
     }
 
     /**
-     * Validates Bedrock output controls, parses the schema, and builds the OpenAI
-     * wire shape shared by Converse and ConverseStream.
-     * Bedrock nests effort and a schema string under {@code outputConfig}, while OpenAI
-     * expects {@code reasoning_effort} and {@code response_format} containing a schema object.
-     * Keeping validation with conversion rejects malformed controls before backend inference
-     * or a committed stream response.
+     * Converts Bedrock output controls to the OpenAI wire shape, rejecting malformed
+     * configuration before either Converse operation contacts the backend.
      */
     private static void translateOutputConfig(ObjectMapper mapper, JsonNode outputConfig, ObjectNode openAi) {
         if (outputConfig.isMissingNode()) {
